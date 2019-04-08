@@ -112,6 +112,7 @@ struct ZkProof {
     G1 cmtPf2b;   // counter commit for H based proof 
     Fp12 cmtPf3;  // counter commit for proof 3
     std::array<G1,SPECIAL_COUNT> specials; // Vals to be proved again further 
+    std::array<Fr,RESPONSE_COUNT> response; // response to fiat-shamir
 };
 
 struct ZkProofKnowledge : ZkProof {
@@ -146,10 +147,6 @@ struct Prover {
 
 struct Verifier {
     std::array<Fp12,PROOF_COUNT> pairings; // precomputed pairings
-    Fp12 lefttop; // the left hand side of proof (2) e(h0 * ?,g)
-    Fp12 leftbottom; // e(A,y)
-    std::unique_ptr<Fp12> left; // The left hand side; 
-    std::unique_ptr<ZkProof> proof; // the proof to be examined
     TrustLayer trust;
     std::shared_ptr<const Protocol> protocol;
 
@@ -164,11 +161,9 @@ struct Verifier {
         for(size_t i = 0; i < SPECIAL_COUNT; i++) {
             pairing(pairings[2+GENERATOR_COUNT+i],protocol->iH,protocol->crv.g2); 
         }
-        pairing(lefttop,protocol->generators[0],protocol->crv.g2);
     }
 };
     
-
 
 /*--------------------------------------------------------------------------------------
  * CLS Zero Knowledge Proof
@@ -178,28 +173,15 @@ struct Verifier {
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void NewZkProof(Prover &p);
+void NewZkProof(Prover &p, const std::vector<size_t>& disclose);
 
-/**
- * Respond to a challenge from the verifier schnorr-style
- * ------------------------------------------------------
- */
-void RespondToChallenge(const Prover& p, const Fr& challenge, 
-    std::array<Fr,RESPONSE_COUNT>& response);
-
-/**
- * The verifier process the ZkProof by precomputing 
- * -----------------------------------------------
- */
-void ProcessZkProof(const ZkProof zk, Verifier& v); 
 
 /**
  * Verify the response to a challenge 
  * -----------------------------------------------
  */
-bool VerifyProof(const Verifier& v, const Fr& challenge, 
-    const std::array<Fr,RESPONSE_COUNT>& response,
-    const std::vector<std::pair<std::string,size_t>>* disclosed = nullptr);
+bool VerifyProof(Verifier& v, const ZkProof& proof,
+    std::vector<std::pair<std::string,size_t>>& disclosed);
 
 }}
 

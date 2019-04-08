@@ -56,7 +56,7 @@ TEST(DeidTest,Prove) {
     // Sign a record
     Signature sig;
     std::array<Fr,MESSAGE_COUNT> hashes;
-    std::array<G1,SPECIAL_COUNT> ign = { p->crv.g1 };
+    std::array<G1,SPECIAL_COUNT> ign = { p->crv.g1, p->crv.g1 };
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
     Sign(kp,p->generators,record,ign,sig,&hashes);
 
@@ -66,17 +66,11 @@ TEST(DeidTest,Prove) {
 
     // Now proof, process, challenge, response & verify 
     bool result;
-    Fr challenge;
     ZkProof deserial;
-    std::array<Fr,RESPONSE_COUNT> response;
-    std::vector<char> buf((G1_size * 6)+Fp12_size); 
-    NewZkProof(prover);
+    NewZkProof(prover,{0});
     ZkProof zkp = (ZkProof) *(prover.proof);
-
-    ProcessZkProof(zkp,verifier);
-    challenge.setRand();
-    RespondToChallenge(prover,challenge,response);
-    result = VerifyProof(verifier,challenge,response);
+    std::vector<std::pair<std::string,size_t>> disclose = {{"a",0}};
+    result = VerifyProof(verifier,zkp,disclose);
     ASSERT_EQ(result,1);
 }
 

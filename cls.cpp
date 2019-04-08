@@ -9,6 +9,8 @@
 #include "cls.hpp"
 #include "schnorr.hpp"
 
+#include <iostream>
+
 using namespace mcl::bn256;
 
 using namespace philips;
@@ -121,7 +123,7 @@ bool philips::cls::VerifySignature(const G2& base, const G2& pub, const Signatur
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void philips::cls::NewZkProof(Prover& p) 
+void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose) 
 {
     p.proof.reset(new(ZkProofKnowledge));
 
@@ -133,11 +135,25 @@ void philips::cls::NewZkProof(Prover& p)
     p.proof->pf2a.setRand();
     p.proof->pf2b.setRand();
     p.proof->pf2c.setRand();
-    for(Fr pfi: p.proof->pf3) {
-       pfi.setRand(); 
+
+    for (size_t i = 0; i < PROOF_COUNT; i++) {
+        Fr x; 
+        x.setRand();
+        p.proof->pf3[i] = x;
     }
-    for(Fr sp : p.proof->s) {
-        sp.setRand();
+    for(size_t i = 0; i < SPECIAL_COUNT; i++) {
+        Fr x; 
+        x.setRand();
+        p.proof->s[i] = x;
+    }
+
+    // process the disclosure request
+    std::vector<size_t> targets = disclose;
+    std::sort(targets.begin(),targets.end()); 
+
+    // empty randoms for disclosed messages
+    for(size_t target : targets) {
+        p.proof->pf3[3 + target] = (Fr) 0;
     }
 
     // commitment time
@@ -153,31 +169,44 @@ void philips::cls::NewZkProof(Prover& p)
     PedersenCmt(p.protocol->crv.g1,p.protocol->iH,p.proof->pf2b,p.proof->pf2c,
         p.proof->cmtPf2b);
 
-    // pf3 is complicated
-    pairing(p.pairings[0],p.proof->cmtA,p.protocol->crv.g2); 
-    Fp12::pow(p.proof->cmtPf3,p.pairings[0],p.proof->pf3[0]);
-    for(size_t i =1; i < PROOF_COUNT; i++) {
-        Fp12 exp;
-        Fp12::pow(exp,p.pairings[i],p.proof->pf3[i]);
-        Fp12::mul(p.proof->cmtPf3,p.proof->cmtPf3,exp);
-    }
-
     // blind the special values
     for(size_t i = 0; i < SPECIAL_COUNT; i++) {
         G1 blind;
         G1::mul(blind,p.protocol->iH,p.proof->s[i]);
         G1::add(p.proof->specials[i],p.drec.specials[i],blind);
     }
-}
 
+    // pf3 is complicated
+    pairing(p.pairings[0],p.proof->cmtA,p.protocol->crv.g2); 
+    Fp12::pow(p.proof->cmtPf3,p.pairings[0],p.proof->pf3[0]);
+    for(size_t i =1; i < PROOF_COUNT; i++) {
+        if(p.proof->pf3[i] != (Fr) 0) {
+            Fp12 exp;
+            Fp12::pow(exp,p.pairings[i],p.proof->pf3[i]);
+            Fp12::mul(p.proof->cmtPf3,p.proof->cmtPf3,exp);
+        }
+    }
 
-/**
- * Respond to a challenge from the verifier schnorr-style
- * ------------------------------------------------------
- */
-void philips::cls::RespondToChallenge(const Prover& p, const Fr& challenge, 
-    std::array<Fr,RESPONSE_COUNT>& response)
-{
+    // compute the lefthand side
+    Fp12 left;
+    Fp12 leftbottom;
+    G1 disclosed = p.protocol->generators[0];
+    for(size_t target : targets) {
+        G1 tmp;
+        G1::mul(tmp,p.protocol->generators[target+1],p.drec.hashvalues[target]);
+        G1::add(disclosed,disclosed,tmp);
+    }
+    for(G1 special : p.proof->specials) {
+        G1::add(disclosed,disclosed,special);
+    }
+    pairing(left,disclosed,p.protocol->crv.g2);  
+    pairing(leftbottom,p.proof->cmtA,p.trust.pub);
+    Fp12::div(left,left,leftbottom);
+
+    // fiat shamir over cmtPf3, left 
+    Fr fsc;
+    FiatShamir<Fp12>(p.proof->cmtPf3,left,p.pairings[0],fsc);
+
     // the randoms used to populate the schnorr style commits
     std::array<Fr,RESPONSE_COUNT> randoms = {p.proof->pf1a, p.proof->pf1b, p.proof->pf2a,
         p.proof->pf2b, p.proof->pf2c};
@@ -198,100 +227,84 @@ void philips::cls::RespondToChallenge(const Prover& p, const Fr& challenge,
         secrets[RESPONSE_COUNT - SPECIAL_COUNT + i] = p.proof->s[i];
     }
 
-    Fr mult;
     for(size_t i = 0; i < RESPONSE_COUNT; i++) {
-        Fr::mul(mult,secrets[i],challenge);
-        Fr::sub(response[i],randoms[i],mult);
-    }
-}
-
-
-/**
- * The verifier process the ZkProof by precomputing 
- * -----------------------------------------------
- */
-void philips::cls::ProcessZkProof(const ZkProof zk, Verifier& v) 
-{
-    Fp12 newleft, newtop;
-    G1 addtop;
-
-    // set left bottom
-    pairing(v.leftbottom,zk.cmtA,v.trust.pub);
-
-    // adjust top 
-    if(SPECIAL_COUNT > 0) {
-        addtop.clear();
-        for(G1 sp: zk.specials) {
-            G1::add(addtop,addtop,sp);
+        if(randoms[i] != (Fr) 0){
+            Fr mult;
+            Fr::mul(mult,secrets[i],fsc);
+            Fr::sub(p.proof->response[i],randoms[i],mult);
+        } else {
+            p.proof->response[i] = (Fr) 0;
         }
-        pairing(newtop,addtop,v.protocol->crv.g2);
-        Fp12::mul(v.lefttop,newtop,v.lefttop);
     }
-
-    // divide & go
-    Fp12::div(newleft,v.lefttop,v.leftbottom);
-    v.left.reset(new(Fp12)(newleft));
-    pairing(v.pairings[0],zk.cmtA,v.protocol->crv.g2);
-    v.proof.reset(new(ZkProof)(zk));
 }
-
 
 /**
  * Verify the response to a challenge 
  * -----------------------------------------------
  */
-bool philips::cls::VerifyProof(const Verifier& v, const Fr& challenge, 
-    const std::array<Fr,RESPONSE_COUNT>& response,
-    const std::vector<std::pair<std::string,size_t>>* disclosed)
+bool philips::cls::VerifyProof(Verifier& v, const ZkProof& proof,
+    std::vector<std::pair<std::string,size_t>>& disclosed)
 {
-    // sanity checks
-    if(v.proof == nullptr || v.left == nullptr) return false; 
+    // PROCESS the proof
+    Fp12 left, newtop, leftbottom, lefttop;
+    G1 addtop;
+
+    // set left bottom & top
+    pairing(leftbottom,proof.cmtA,v.trust.pub);
+    addtop = v.protocol->generators[0];
+
+    // adjust top 
+    for(G1 sp: proof.specials) {
+        G1::add(addtop,addtop,sp);
+    }
+
+    // deal with the disclosed info
+    std::sort(disclosed.begin(),disclosed.end(), 
+        [](const std::pair<std::string,size_t>&a,const std::pair<std::string,size_t>& b) 
+            { return a.second < b.second; }); 
+    for(auto pair: disclosed) {
+        G1 tmp;
+        Fr hash;
+        hash.setHashOf(pair.first);
+        G1::mul(tmp,v.protocol->generators[pair.second+1],hash);
+        G1::add(addtop,addtop,tmp);
+    }
+    pairing(lefttop,addtop,v.protocol->crv.g2);  
+    Fp12::div(left,lefttop,leftbottom);
+
+    // update pairing
+    pairing(v.pairings[0],proof.cmtA,v.protocol->crv.g2);
+
+    // compute fiat-shamir
+    Fr fsc;
+    Fp12 p0 = v.pairings[0];
+    FiatShamir<Fp12>(proof.cmtPf3,left,p0,fsc);
 
     // simplified calling
     const std::array<G1,2> pf1gens = {v.protocol->crv.g1,v.protocol->iH};
-    const std::array<G1,1> pf2gens = {v.proof->cmtB};
+    const std::array<G1,1> pf2gens = {proof.cmtB};
 
     // check proof 1
-    if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(v.proof->cmtB,v.proof->cmtPf1,
-    challenge,response.begin(),pf1gens.begin())) {
+    if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(proof.cmtB,proof.cmtPf1,fsc,
+        proof.response.begin(),pf1gens.begin())) {
         return false;
     }
 
     // check proof 2a
-    if (!VerifySchnorrProofG1<RESPONSE_COUNT,1>(v.proof->cmtBc,v.proof->cmtPf2,
-    challenge,(response.begin() + 2),pf2gens.begin())) {
+    if (!VerifySchnorrProofG1<RESPONSE_COUNT,1>(proof.cmtBc,proof.cmtPf2,fsc,
+        (proof.response.begin() + 2),pf2gens.begin())) {
         return false;
     }
 
-    // check proof 2b :: Note minimal perf impact
-    if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(v.proof->cmtBc,v.proof->cmtPf2b,
-    challenge,(response.begin() + 3),pf1gens.begin())) {
+    // check proof 2b 
+    if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(proof.cmtBc,proof.cmtPf2b,fsc,
+        (proof.response.begin() + 3),pf1gens.begin())) {
         return false;
     }
 
-    // Recompute left-side hand if there are disclosures
-    Fp12 lefthand;
-    if(disclosed) {
-        Fp12 disclp;
-        G1 multi;
-        for(auto pair: (*disclosed)) {
-            G1 tmp;
-            Fr hash;
-            hash.setHashOf(pair.first);
-            G1::mul(tmp,v.protocol->generators[pair.second],hash);
-            G1::add(multi,multi,tmp);
-        }
-        pairing(disclp,multi,v.protocol->crv.g2);  
-        Fp12::mul(disclp,v.lefttop,disclp);
-        Fp12::div(disclp,disclp,v.leftbottom);
-        lefthand = disclp;
-    } else {
-        lefthand = *(v.left);
-    }
-
-    // check proof 3 :: EXPENSIVE
-    if (!VerifySchnorrProofGt<RESPONSE_COUNT,PROOF_COUNT>(lefthand,v.proof->cmtPf3,
-    challenge,(response.begin() + 5),v.pairings.begin())) {
+    // check proof 3 
+    if (!VerifySchnorrProofGt<RESPONSE_COUNT,PROOF_COUNT>(left,proof.cmtPf3,fsc,
+        (proof.response.begin() + 5),v.pairings.begin())) {
         return false;
     } 
 

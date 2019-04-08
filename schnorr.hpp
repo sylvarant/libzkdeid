@@ -49,9 +49,13 @@ bool VerifySchnorrProofGt(const Fp12& cmt, const Fp12& left, const Fr& challenge
     auto resp = response;  
     auto gen = generators;  
     for(size_t i = 0; i < M ; i++) {
-        Fp12 exp;
-        Fp12::pow(exp,*gen++,*resp++);
-        Fp12::mul(right,right,exp);
+        if(*resp != (Fr) 0) { // security risk?
+            Fp12 exp;
+            Fp12::pow(exp,*gen,*resp);
+            Fp12::mul(right,right,exp);
+        }
+        gen++;
+        resp++;
     }
 
     return (left == right);

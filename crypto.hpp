@@ -6,6 +6,9 @@
  * written to be C++11 compliant, columnwidth = 90
  */
 
+#include <type_traits>
+#include <iostream>
+
 #include <mcl/bn256.hpp>
 
 using namespace mcl::bn256; 
@@ -17,6 +20,31 @@ const size_t G2_size = 64;
 const size_t Fp12_size = 384;
 
 namespace philips {
+
+/**
+ * Get type size missing in mcl
+ * ------------------------------------------
+ */
+inline size_t BytesSize(G1) 
+{
+    return G1_size;
+}
+
+inline size_t BytesSize(G2) 
+{
+    return G2_size;
+}
+
+inline size_t BytesSize(Fp12) 
+{
+    return Fp12_size;
+}
+
+inline size_t BytesSize(Fr) 
+{
+    return Fr_size;
+}
+
 
 /**
  * Generate Generators
@@ -45,6 +73,26 @@ inline void PedersenCmt(const G1& g, const G1& h, const Fr& a, const Fr& b, G1& 
     G1::mul(right,h,b);
     G1::mul(cmt,g,a);
     G1::add(cmt,cmt,right);
+}
+
+
+/**
+ * Create a fiat shamir style challenge
+ * ------------------------------------------
+ */
+template<typename G>
+inline void FiatShamir(const G& rand, const G& cmt, const G& gen, Fr& c) 
+{
+    G tmp;
+    const size_t N = BytesSize(tmp);
+    std::vector<char> buf(N+N+N);
+    tmp = rand;
+    size_t alloc_size = tmp.serialize(&buf[0],N); // TODO assert read sizes?
+    tmp = cmt;
+    alloc_size += tmp.serialize(&buf[alloc_size],N);
+    tmp = gen;
+    alloc_size += tmp.serialize(&buf[alloc_size],N);
+    c.setHashOf(&buf[0],alloc_size); 
 }
 
 }

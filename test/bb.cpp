@@ -19,8 +19,8 @@ using namespace philips::bb;
 using namespace mcl::bn256;
 
 // Test signatures
-TEST(BbTest,SigninG1) {
-
+TEST(BbTest,SigninG1) 
+{
     // setup 
     Curve crv;
 
