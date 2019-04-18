@@ -1,6 +1,6 @@
 #pragma once
 /** 
- * Accumulator implementation
+ * Deidentification through cls
  * utilizing mcl
  * by AJHL
  * for philips
@@ -19,7 +19,7 @@
 #define PROOF_COUNT     (MESSAGE_COUNT + SPECIAL_COUNT + 4)
 #define RESPONSE_COUNT  (MESSAGE_COUNT + SPECIAL_COUNT + 9) 
 
-namespace philips { namespace cls {
+namespace philips { 
 
 using namespace mcl::bn256;
 
@@ -36,6 +36,8 @@ struct Signature {
     G1 sigma;
     Fr c;
     Fr s;
+    Fr u;
+    Fr l;
 };
 
 /**
@@ -48,55 +50,33 @@ void KeyGen(const G2& base, KeyPair& kp);
  * Sign a set of record
  * ------------------------------------------
  */
-void Sign(const KeyPair& kp, const std::array<G1,GENERATOR_COUNT>& gens, 
-    const std::array<std::string,MESSAGE_COUNT>& record, 
-    const std::array<G1,SPECIAL_COUNT>& specials, Signature& sig,
+void Sign(const KeyPair& kp, const std::shared_ptr<const Protocol>& p, 
+    const std::array<std::string,MESSAGE_COUNT>& record, Signature& sig,
     std::array<Fr,MESSAGE_COUNT>* hashes = nullptr); 
-
 
 /**
  * Verify a given CLS signature without zk
  * ------------------------------------------
  */
 bool VerifySignature(const G2& base, const G2& pub, const Signature& sig, 
-    const std::array<G1,GENERATOR_COUNT>& generators, 
-    const std::array<std::string,MESSAGE_COUNT>& record,
-    const std::array<G1,SPECIAL_COUNT>& special);
+    const std::shared_ptr<const Protocol>& p, 
+    const std::array<std::string,MESSAGE_COUNT>& record);
 
 
 /*--------------------------------------------------------------------------------------
  * Innovations
  *-------------------------------------------------------------------------------------*/
 
-struct Special {
-    Fr u, g;
-    G1 hu, hg;
-
-    Special(std::shared_ptr<const Protocol> p)
-    {
-        u.setRand();
-        g.setRand();
-        G1::mul(hu,p->uH,u);
-        G1::mul(hg,p->gH,g);
-    }
-
-    Special() {}
-};
-
 struct DeidRecord {
     std::array<std::string,MESSAGE_COUNT> record;
     std::array<Fr,MESSAGE_COUNT> hashvalues;
-    std::array<G1,SPECIAL_COUNT> specials; 
-    Special sp;
     Signature sig;
 
     // simplify initialization
     DeidRecord(const KeyPair &kp, const std::array<std::string,MESSAGE_COUNT>& rec,
-        std::shared_ptr<const Protocol> p) : record(rec)
+        const std::shared_ptr<const Protocol> p) : record(rec)
     {
-        sp = Special(p);   
-        specials = { sp.hu, sp.hg };
-        Sign(kp,p->generators,record,specials,sig,&hashvalues);
+        Sign(kp,p,record,sig,&hashvalues);
     } 
     DeidRecord() {}
 };
@@ -111,17 +91,19 @@ struct ZkProof {
     G1 cmtPf2;    // counter commit for proof 2
     G1 cmtPf2b;   // counter commit for H based proof 
     Fp12 cmtPf3;  // counter commit for proof 3
-    std::array<G1,SPECIAL_COUNT> specials; // Vals to be proved again further 
+    G1 cmtU; // u value blinder
+    G1 cmtL; // l value blinder
     std::array<Fr,RESPONSE_COUNT> response; // response to fiat-shamir
 };
 
 struct ZkProofKnowledge : ZkProof {
     Fr r;                           // secret for A
     Fr open;                        // secret for B
-    std::array<Fr,SPECIAL_COUNT> s; // secrets for blinding the specials
-    Fr pf1a, pf1b;                  // secrets for Dpf1
-    Fr pf2a, pf2b, pf2c;            // secrets for Dpf2 & Dpf2b
-    std::array<Fr,PROOF_COUNT> pf3; // secrets for Dpf3
+    Fr ublind; 
+    Fr lblind; 
+    Fr pf1a, pf1b;                  
+    Fr pf2a, pf2b, pf2c;            
+    std::array<Fr,PROOF_COUNT> pf3; 
 };
 
 struct Prover {
@@ -183,5 +165,5 @@ void NewZkProof(Prover &p, const std::vector<size_t>& disclose);
 bool VerifyProof(Verifier& v, const ZkProof& proof,
     std::vector<std::pair<std::string,size_t>>& disclosed);
 
-}}
+}
 

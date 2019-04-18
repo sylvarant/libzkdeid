@@ -1,12 +1,12 @@
 /** 
- * CLS signature & zk proof
+ * Deid by means of CLS
  * by AJHL
  * for philips
  * written to be C++11 compliant, columnwidth = 90
  */
 
 // philips 
-#include "cls.hpp"
+#include "deid.hpp"
 #include "schnorr.hpp"
 
 #include <iostream>
@@ -14,7 +14,6 @@
 using namespace mcl::bn256;
 
 using namespace philips;
-using namespace philips::cls;
 
 /*--------------------------------------------------------------------------------------
  * Setup & Infrastructure
@@ -24,7 +23,7 @@ using namespace philips::cls;
  * Generate a keypair for a trusted party
  * ------------------------------------------
  */
-void philips::cls::KeyGen(const G2& base, KeyPair& kp) 
+void philips::KeyGen(const G2& base, KeyPair& kp) 
 {
     kp.priv.setRand(); 
     G2::mul(kp.pub,base,kp.priv); // pub =  base ^ priv
@@ -39,14 +38,15 @@ void philips::cls::KeyGen(const G2& base, KeyPair& kp)
  * Sign a set of record
  * ------------------------------------------
  */
-void philips::cls::Sign(const KeyPair& kp, const std::array<G1,GENERATOR_COUNT>& gens, 
-    const std::array<std::string,MESSAGE_COUNT>& record,     
-    const std::array<G1,SPECIAL_COUNT>& specials, Signature& sig,
+void philips::Sign(const KeyPair& kp, const std::shared_ptr<const Protocol>& p, 
+    const std::array<std::string,MESSAGE_COUNT>& record, Signature& sig,
     std::array<Fr,MESSAGE_COUNT>* hashes) 
 { 
     // random members
     sig.s.setRand();
     sig.c.setRand();
+    sig.u.setRand();
+    sig.l.setRand();
 
     Fr inv,sum;
     Fr::add(sum,kp.priv,sig.c);
@@ -54,7 +54,7 @@ void philips::cls::Sign(const KeyPair& kp, const std::array<G1,GENERATOR_COUNT>&
 
     G1 last, mult;
     int i = 0;
-    mult = gens[0]; 
+    mult = p->generators[0]; 
     for(auto const& value: record) {
         Fr mp;
         G1 hm;
@@ -62,13 +62,18 @@ void philips::cls::Sign(const KeyPair& kp, const std::array<G1,GENERATOR_COUNT>&
         if(hashes) { 
             (*hashes)[i] = mp;
         }
-        G1::mul(hm,gens[++i],mp);
+        G1::mul(hm,p->generators[++i],mp);
         G1::add(mult,mult,hm);
     }
-    for(auto const& gval: specials) {
-        G1::add(mult,mult,gval);
-    }
-    G1::mul(last,gens.at(++i),sig.s);  
+    // special values
+    G1 hu;
+    G1 hl;
+    G1::mul(hu,p->uH,sig.u);
+    G1::add(mult,mult,hu);
+    G1::mul(hl,p->lH,sig.l);
+    G1::add(mult,mult,hl);
+    // last one
+    G1::mul(last,p->generators[++i],sig.s);  
     G1::add(mult,mult,last); 
     G1::mul(sig.sigma,mult,inv);
 }
@@ -78,10 +83,9 @@ void philips::cls::Sign(const KeyPair& kp, const std::array<G1,GENERATOR_COUNT>&
  * Verify a given CLS signature without zk
  * ------------------------------------------
  */
-bool philips::cls::VerifySignature(const G2& base, const G2& pub, const Signature& sig, 
-    const std::array<G1,GENERATOR_COUNT>& generators, 
-    const std::array<std::string,MESSAGE_COUNT>& record,
-    const std::array<G1,SPECIAL_COUNT>& specials) 
+bool philips::VerifySignature(const G2& base, const G2& pub, const Signature& sig, 
+    const std::shared_ptr<const Protocol>& p, 
+    const std::array<std::string,MESSAGE_COUNT>& record) 
 {
     // you need to compute 2 pairings
     Fp12 left, right; 
@@ -95,18 +99,24 @@ bool philips::cls::VerifySignature(const G2& base, const G2& pub, const Signatur
     // pair(hi^m,G2.base)
     G1 last, mult;
     int i = 0;
-    mult = generators.at(0); 
+    mult = p->generators[0]; 
     for(auto const& value: record) {
         Fr mp;
         G1 hm;
         mp.setHashOf(value);
-        G1::mul(hm,generators[++i],mp);
+        G1::mul(hm,p->generators[++i],mp);
         G1::add(mult,mult,hm);
     }
-    for(auto const& gval: specials) {
-        G1::add(mult,mult,gval);
-    }
-    G1::mul(last,generators[++i],sig.s);  
+
+    // special values
+    G1 hu;
+    G1 hl;
+    G1::mul(hu,p->uH,sig.u);
+    G1::add(mult,mult,hu);
+    G1::mul(hl,p->lH,sig.l);
+    G1::add(mult,mult,hl);
+
+    G1::mul(last,p->generators[++i],sig.s);  
     G1::add(mult,mult,last); 
     pairing(right,mult,base);
     
@@ -123,7 +133,7 @@ bool philips::cls::VerifySignature(const G2& base, const G2& pub, const Signatur
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose) 
+void philips::NewZkProof(Prover& p, const std::vector<size_t>& disclose) 
 {
     p.proof.reset(new(ZkProofKnowledge));
 
@@ -141,11 +151,8 @@ void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
         x.setRand();
         p.proof->pf3[i] = x;
     }
-    for(size_t i = 0; i < SPECIAL_COUNT; i++) {
-        Fr x; 
-        x.setRand();
-        p.proof->s[i] = x;
-    }
+    p.proof->ublind.setRand();
+    p.proof->lblind.setRand();
 
     // process the disclosure request
     std::vector<size_t> targets = disclose;
@@ -168,13 +175,17 @@ void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
     G1::mul(p.proof->cmtPf2,p.proof->cmtB,p.proof->pf2a);
     PedersenCmt(p.protocol->crv.g1,p.protocol->iH,p.proof->pf2b,p.proof->pf2c,
         p.proof->cmtPf2b);
-
+    
     // blind the special values
-    for(size_t i = 0; i < SPECIAL_COUNT; i++) {
-        G1 blind;
-        G1::mul(blind,p.protocol->iH,p.proof->s[i]);
-        G1::add(p.proof->specials[i],p.drec.specials[i],blind);
-    }
+    G1 hu;
+    G1 hl;
+    G1 blind;
+    G1::mul(hu,p.protocol->uH,p.drec.sig.u);
+    G1::mul(blind,p.protocol->iH,p.proof->ublind);
+    G1::add(p.proof->cmtU,blind,hu);
+    G1::mul(hl,p.protocol->lH,p.drec.sig.l);
+    G1::mul(blind,p.protocol->iH,p.proof->lblind);
+    G1::add(p.proof->cmtL,blind,hl);
 
     // pf3 is complicated
     pairing(p.pairings[0],p.proof->cmtA,p.protocol->crv.g2); 
@@ -196,9 +207,8 @@ void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
         G1::mul(tmp,p.protocol->generators[target+1],p.drec.hashvalues[target]);
         G1::add(disclosed,disclosed,tmp);
     }
-    for(G1 special : p.proof->specials) {
-        G1::add(disclosed,disclosed,special);
-    }
+    G1::add(disclosed,disclosed,p.proof->cmtU);
+    G1::add(disclosed,disclosed,p.proof->cmtL);
     pairing(left,disclosed,p.protocol->crv.g2);  
     pairing(leftbottom,p.proof->cmtA,p.trust.pub);
     Fp12::div(left,left,leftbottom);
@@ -222,10 +232,9 @@ void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
     for(size_t i = 0; i < MESSAGE_COUNT; i++) {
         Fr::neg(secrets[8+i],p.drec.hashvalues[i]);
     }
-    Fr::neg(secrets[RESPONSE_COUNT-SPECIAL_COUNT-1],p.drec.sig.s);
-    for(size_t i = 0; i < SPECIAL_COUNT; i++) {
-        secrets[RESPONSE_COUNT - SPECIAL_COUNT + i] = p.proof->s[i];
-    }
+    Fr::neg(secrets[RESPONSE_COUNT-3],p.drec.sig.s);
+    secrets[RESPONSE_COUNT - 2] = p.proof->ublind;
+    secrets[RESPONSE_COUNT - 1] = p.proof->lblind;
 
     for(size_t i = 0; i < RESPONSE_COUNT; i++) {
         if(randoms[i] != (Fr) 0){
@@ -242,7 +251,7 @@ void philips::cls::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
  * Verify the response to a challenge 
  * -----------------------------------------------
  */
-bool philips::cls::VerifyProof(Verifier& v, const ZkProof& proof,
+bool philips::VerifyProof(Verifier& v, const ZkProof& proof,
     std::vector<std::pair<std::string,size_t>>& disclosed)
 {
     // PROCESS the proof
@@ -254,9 +263,8 @@ bool philips::cls::VerifyProof(Verifier& v, const ZkProof& proof,
     addtop = v.protocol->generators[0];
 
     // adjust top 
-    for(G1 sp: proof.specials) {
-        G1::add(addtop,addtop,sp);
-    }
+    G1::add(addtop,addtop,proof.cmtU);
+    G1::add(addtop,addtop,proof.cmtL);
 
     // deal with the disclosed info
     std::sort(disclosed.begin(),disclosed.end(), 

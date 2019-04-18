@@ -14,7 +14,7 @@
 #ifndef MESSAGE_COUNT
 #define MESSAGE_COUNT   50
 #endif
-// Number of values to cross referenced between cls proofs
+// TODO remove
 #ifndef SPECIAL_COUNT 
 #define SPECIAL_COUNT   2
 #endif
@@ -43,13 +43,13 @@ struct Curve {
 
 struct Protocol {
     G1 uH;
-    G1 gH;
+    G1 lH;
     G1 iH; 
     Curve crv;
     std::array<G1,GENERATOR_COUNT> generators; 
     Protocol() {
         hashAndMapToG1(iH,"uniqueH");
-        hashAndMapToG1(gH,"gammaH");
+        hashAndMapToG1(lH,"lambdaH");
         hashAndMapToG1(iH,"issuerH");
         SetupGenerators(generators); 
     }

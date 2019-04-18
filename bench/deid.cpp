@@ -1,5 +1,5 @@
 /** 
- * Bench our CLS implementation
+ * Bench our implementation
  * by AJHL
  * for philips
  * written to be C++11 compliant, columnwidth = 90
@@ -9,12 +9,11 @@
 #include <cybozu/benchmark.hpp>
 
 #include <protocol.hpp>
-#include <cls.hpp>
+#include <deid.hpp>
 
 using namespace mcl::bn256;
 
 using namespace philips;
-using namespace philips::cls;
 
 //---------------------------------------------------
 // starting point

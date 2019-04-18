@@ -10,10 +10,9 @@
 
 #include <crypto.hpp>
 #include <protocol.hpp>
-#include <cls.hpp>
+#include <deid.hpp>
 
 using namespace philips;
-using namespace philips::cls;
 
 // Test signatures
 TEST(DeidTest,Sign) {
@@ -30,14 +29,13 @@ TEST(DeidTest,Sign) {
     // Sign a record
     Signature sig;
     std::array<Fr,MESSAGE_COUNT> hashes;
-    std::array<G1,SPECIAL_COUNT> ign = { p->crv.g1 , p->crv.g1 };
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
-    Sign(kp,p->generators,record,ign,sig,&hashes);
+    Sign(kp,p,record,sig,&hashes);
 	std::cout << "Signature sigma: " << sig.sigma << std::endl;
 
     // Test Signature Verification
-    ASSERT_EQ(VerifySignature(p->crv.g2,trust.pub,sig,p->generators,record,ign),1); 
-    ASSERT_EQ(VerifySignature(p->crv.g2,trust.pub,sig,p->generators,{"b"},ign),0);
+    ASSERT_EQ(VerifySignature(p->crv.g2,trust.pub,sig,p,record),1); 
+    ASSERT_EQ(VerifySignature(p->crv.g2,trust.pub,sig,p,{"b"}),0);
 }
 
 
@@ -56,9 +54,8 @@ TEST(DeidTest,Prove) {
     // Sign a record
     Signature sig;
     std::array<Fr,MESSAGE_COUNT> hashes;
-    std::array<G1,SPECIAL_COUNT> ign = { p->crv.g1, p->crv.g1 };
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
-    Sign(kp,p->generators,record,ign,sig,&hashes);
+    Sign(kp,p,record,sig,&hashes);
 
     // Create a prover  & Verifier
     Prover prover = Prover(DeidRecord(kp,record,p),trust,p); 
