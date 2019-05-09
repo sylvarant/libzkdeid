@@ -47,8 +47,10 @@ TEST(DeidTest,Prove) {
 
     // generate keypair for issuer & create trustchain info
     KeyPair kp;
+    KeyPair kp2;
     TrustLayer trust;
     KeyGen(p->crv.g2,kp); 
+    KeyGen(p->crv.g2,kp2); 
     trust.pub = kp.pub;
 
     // Sign a record
@@ -56,18 +58,20 @@ TEST(DeidTest,Prove) {
     std::array<Fr,MESSAGE_COUNT> hashes;
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
     Sign(kp,p,record,sig,&hashes);
+    DeidRecord drec = DeidRecord(kp,record,p);
+    std::vector<DeidRecord> records = { drec };
 
     // Create a prover  & Verifier
-    Prover prover = Prover(DeidRecord(kp,record,p),trust,p); 
+    Prover prover = Prover(records,trust,p); 
     Verifier verifier = Verifier(trust,p);
 
     // Now proof, process, challenge, response & verify 
     bool result;
-    ZkProof deserial;
-    NewZkProof(prover,{0});
-    ZkProof zkp = (ZkProof) *(prover.proof);
+    ZkProofKnowledge deserial;
+    NewZkProof({0},kp2.pub,drec,deserial,prover);
+    ZkProof zkp = (ZkProof) (deserial);
     std::vector<std::pair<std::string,size_t>> disclose = {{"a",0}};
-    result = VerifyProof(verifier,zkp,disclose);
+    result = VerifyProof(zkp,kp2.pub,disclose,verifier);
     ASSERT_EQ(result,1);
 }
 

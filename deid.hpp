@@ -9,6 +9,7 @@
 
 #include <array>
 #include <memory>
+#include <unordered_map>
 #include <mcl/bn256.hpp>
 
 //philips
@@ -17,7 +18,13 @@
 
 // CLS based constants
 #define PROOF_COUNT     (MESSAGE_COUNT + SPECIAL_COUNT + 4)
+#define PAIRING_COUNT   (PROOF_COUNT + 3)
 #define RESPONSE_COUNT  (MESSAGE_COUNT + SPECIAL_COUNT + 9) 
+#define ROW_RESPONSE_COUNT 3
+#define ROW_PROOF_COUNT 4
+
+// for marshalling
+#define FP_SIZE 384
 
 namespace philips { 
 
@@ -81,19 +88,21 @@ struct DeidRecord {
     DeidRecord() {}
 };
 
-
 // The public part of the zero-knowledge proof 
 struct ZkProof { 
     G1 cmtA;
     G1 cmtB;
-    G1 cmtPf1;    // counter commit for proof 1
-    G1 cmtBc;      // B^c for proving knowledge of mult => rc
-    G1 cmtPf2;    // counter commit for proof 2
-    G1 cmtPf2b;   // counter commit for H based proof 
-    Fp12 cmtPf3;  // counter commit for proof 3
+    G1 cmtPf1;    
+    G1 cmtBc;     
+    G1 cmtPf2;   
+    G1 cmtPf2b; 
+    Fp12 cmtPf3;
+    Fp12 cmtPf4;
+    Fp12 rowId;  
     G1 cmtU; // u value blinder
     G1 cmtL; // l value blinder
     std::array<Fr,RESPONSE_COUNT> response; // response to fiat-shamir
+    std::array<Fr,ROW_RESPONSE_COUNT> row_response; 
 };
 
 struct ZkProofKnowledge : ZkProof {
@@ -104,17 +113,39 @@ struct ZkProofKnowledge : ZkProof {
     Fr pf1a, pf1b;                  
     Fr pf2a, pf2b, pf2c;            
     std::array<Fr,PROOF_COUNT> pf3; 
+    std::array<Fr,ROW_PROOF_COUNT> pf4; 
+};
+
+// a row of deid data
+struct Row {
+    std::vector<std::pair<std::string,size_t>> disclosed; 
+    ZkProof proof;
+    Fp12 rowId; 
+};
+
+// a table of deidentified data
+struct Table {
+    std::vector<Row> deidrows; 
+    G2 tablekey; 
+
+    Table(size_t size,const std::string& phrase) {
+        deidrows.reserve(size);
+        hashAndMapToG2(tablekey,phrase);
+    }
+
+    Table(){}
 };
 
 struct Prover {
-    std::unique_ptr<ZkProofKnowledge> proof; 
-    std::array<Fp12,PROOF_COUNT> pairings; // precomputed pairings
-    DeidRecord drec;     
+    std::vector<DeidRecord> drecords;
+    std::unique_ptr<Table> table; 
+    std::unique_ptr<std::vector<std::pair<size_t,ZkProofKnowledge>>> knowledge;
+    std::array<Fp12,PAIRING_COUNT> pairings; // precomputed pairings
     TrustLayer trust;
     std::shared_ptr<const Protocol> protocol;
 
-    Prover(const DeidRecord& drec, const TrustLayer& trust, 
-        std::shared_ptr<const Protocol> p) :  drec(drec), trust(trust), protocol(p) 
+    Prover(const std::vector<DeidRecord>& drec, const TrustLayer& trust, 
+        std::shared_ptr<const Protocol> p) :  drecords(drec), trust(trust), protocol(p) 
     {
         pairing(pairings[1],protocol->iH,trust.pub); 
         pairing(pairings[2],protocol->iH,protocol->crv.g2);
@@ -124,11 +155,13 @@ struct Prover {
         for(size_t i = 0; i < SPECIAL_COUNT; i++) {
             pairing(pairings[2+GENERATOR_COUNT+i],protocol->iH,protocol->crv.g2); 
         }
+        pairing(pairings[PAIRING_COUNT-2],protocol->uH,protocol->crv.g2);
+        pairings[PAIRING_COUNT-1] = pairings[2+GENERATOR_COUNT];
     }
 };
 
 struct Verifier {
-    std::array<Fp12,PROOF_COUNT> pairings; // precomputed pairings
+    std::array<Fp12,PAIRING_COUNT> pairings; // precomputed pairings
     TrustLayer trust;
     std::shared_ptr<const Protocol> protocol;
 
@@ -143,27 +176,49 @@ struct Verifier {
         for(size_t i = 0; i < SPECIAL_COUNT; i++) {
             pairing(pairings[2+GENERATOR_COUNT+i],protocol->iH,protocol->crv.g2); 
         }
+        pairing(pairings[PAIRING_COUNT-2],protocol->uH,protocol->crv.g2);
+        pairings[PAIRING_COUNT-1] = pairings[2+GENERATOR_COUNT];
     }
 };
     
 
 /*--------------------------------------------------------------------------------------
- * CLS Zero Knowledge Proof
+ * Proof methods for rows
  *-------------------------------------------------------------------------------------*/
 
 /**
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void NewZkProof(Prover &p, const std::vector<size_t>& disclose);
+void NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey,
+    const DeidRecord& drec, ZkProofKnowledge& proof, Prover& p);
 
 
 /**
  * Verify the response to a challenge 
  * -----------------------------------------------
  */
-bool VerifyProof(Verifier& v, const ZkProof& proof,
-    std::vector<std::pair<std::string,size_t>>& disclosed);
+bool VerifyProof(const ZkProof& proof, const G2& tablekey,
+    std::vector<std::pair<std::string,size_t>>& disclosed, Verifier& v);
+
+
+/*--------------------------------------------------------------------------------------
+ * Deid table
+ *-------------------------------------------------------------------------------------*/
+
+/**
+ * Create a new table of deidentified data
+ * -----------------------------------------------
+ */
+void NewTable(const std::string& phrase, Prover &p,
+    std::pair<size_t,std::vector<size_t>>* discl, size_t rowcount);
+
+
+/**
+ * Create a new table of deidentified data
+ * -----------------------------------------------
+ */
+bool CheckTable(Verifier& v,const G2& tablekey,Row* table, size_t rowcount);
 
 }
 

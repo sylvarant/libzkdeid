@@ -11,6 +11,8 @@
 
 #include <iostream>
 
+#define SECRET_COUNT RESPONSE_COUNT + ROW_RESPONSE_COUNT
+
 using namespace mcl::bn256;
 
 using namespace philips;
@@ -133,26 +135,30 @@ bool philips::VerifySignature(const G2& base, const G2& pub, const Signature& si
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void philips::NewZkProof(Prover& p, const std::vector<size_t>& disclose) 
+void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey,
+    const DeidRecord& drec, ZkProofKnowledge& proof, Prover& p) 
 {
-    p.proof.reset(new(ZkProofKnowledge));
-
     // random factors
-    p.proof->r.setRand();
-    p.proof->open.setRand();
-    p.proof->pf1a.setRand();
-    p.proof->pf1b.setRand();
-    p.proof->pf2a.setRand();
-    p.proof->pf2b.setRand();
-    p.proof->pf2c.setRand();
+    proof.r.setRand();
+    proof.open.setRand();
+    proof.pf1a.setRand();
+    proof.pf1b.setRand();
+    proof.pf2a.setRand();
+    proof.pf2b.setRand();
+    proof.pf2c.setRand();
 
     for (size_t i = 0; i < PROOF_COUNT; i++) {
         Fr x; 
         x.setRand();
-        p.proof->pf3[i] = x;
+        proof.pf3[i] = x;
     }
-    p.proof->ublind.setRand();
-    p.proof->lblind.setRand();
+    for (size_t i = 0; i < ROW_PROOF_COUNT; i++) {
+        Fr x; 
+        x.setRand();
+        proof.pf4[i] = x;
+    }
+    proof.ublind.setRand();
+    proof.lblind.setRand();
 
     // process the disclosure request
     std::vector<size_t> targets = disclose;
@@ -160,43 +166,64 @@ void philips::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
 
     // empty randoms for disclosed messages
     for(size_t target : targets) {
-        p.proof->pf3[3 + target] = (Fr) 0;
+        proof.pf3[3 + target] = (Fr) 0;
     }
 
     // commitment time
     G1 sigblind;
-    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,p.proof->r,p.proof->open,
-        p.proof->cmtB);
-    G1::mul(sigblind,p.protocol->iH,p.proof->r);
-    G1::add(p.proof->cmtA,sigblind,p.drec.sig.sigma);
-    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,p.proof->pf1a,p.proof->pf1b,
-        p.proof->cmtPf1);
-    G1::mul(p.proof->cmtBc,p.proof->cmtB,p.drec.sig.c);
-    G1::mul(p.proof->cmtPf2,p.proof->cmtB,p.proof->pf2a);
-    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,p.proof->pf2b,p.proof->pf2c,
-        p.proof->cmtPf2b);
+    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,proof.r,proof.open,
+        proof.cmtB);
+    G1::mul(sigblind,p.protocol->iH,proof.r);
+    G1::add(proof.cmtA,sigblind,drec.sig.sigma);
+    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,proof.pf1a,proof.pf1b,
+        proof.cmtPf1);
+    G1::mul(proof.cmtBc,proof.cmtB,drec.sig.c);
+    G1::mul(proof.cmtPf2,proof.cmtB,proof.pf2a);
+    PedersenCmt(p.protocol->crv.g1,p.protocol->iH,proof.pf2b,proof.pf2c,
+        proof.cmtPf2b);
     
     // blind the special values
     G1 hu;
     G1 hl;
     G1 blind;
-    G1::mul(hu,p.protocol->uH,p.drec.sig.u);
-    G1::mul(blind,p.protocol->iH,p.proof->ublind);
-    G1::add(p.proof->cmtU,blind,hu);
-    G1::mul(hl,p.protocol->lH,p.drec.sig.l);
-    G1::mul(blind,p.protocol->iH,p.proof->lblind);
-    G1::add(p.proof->cmtL,blind,hl);
+    G1::mul(hu,p.protocol->uH,drec.sig.u);
+    G1::mul(blind,p.protocol->iH,proof.ublind);
+    G1::add(proof.cmtU,blind,hu);
+    G1::mul(hl,p.protocol->lH,drec.sig.l);
+    G1::mul(blind,p.protocol->iH,proof.lblind);
+    G1::add(proof.cmtL,blind,hl);
+
+    // the rowId
+    pairing(proof.rowId,hu,tablekey);
 
     // pf3 is complicated
-    pairing(p.pairings[0],p.proof->cmtA,p.protocol->crv.g2); 
-    Fp12::pow(p.proof->cmtPf3,p.pairings[0],p.proof->pf3[0]);
+    pairing(p.pairings[0],proof.cmtA,p.protocol->crv.g2); 
+    Fp12::pow(proof.cmtPf3,p.pairings[0],proof.pf3[0]);
     for(size_t i =1; i < PROOF_COUNT; i++) {
-        if(p.proof->pf3[i] != (Fr) 0) {
+        if(proof.pf3[i] != (Fr) 0) {
             Fp12 exp;
-            Fp12::pow(exp,p.pairings[i],p.proof->pf3[i]);
-            Fp12::mul(p.proof->cmtPf3,p.proof->cmtPf3,exp);
+            Fp12::pow(exp,p.pairings[i],proof.pf3[i]);
+            Fp12::mul(proof.cmtPf3,proof.cmtPf3,exp);
         }
     }
+
+    // pf4
+    Fp12 left4;
+    pairing(left4,proof.cmtU,p.protocol->crv.g2);
+    Fp12::div(left4,left4,proof.rowId);    
+    pairing(p.pairings[PAIRING_COUNT-3],p.protocol->iH,tablekey); 
+
+    Fp12::pow(proof.cmtPf4,p.pairings[PAIRING_COUNT-3],proof.pf4[0]); 
+    for(size_t i = 0; i < 2; i++) {
+        Fp12 exp;
+        Fp12::pow(exp,p.pairings[PAIRING_COUNT-2+i],proof.pf4[i+1]);
+        Fp12::mul(proof.cmtPf4,proof.cmtPf4,exp);
+    }
+
+    Fr fsc4;
+    FiatShamir<Fp12>(proof.cmtPf4,left4,p.pairings[PAIRING_COUNT-3],fsc4);
+    std::cout << fsc4 << std::endl;
+    std::cout << proof.rowId << std::endl;
 
     // compute the lefthand side
     Fp12 left;
@@ -204,46 +231,57 @@ void philips::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
     G1 disclosed = p.protocol->generators[0];
     for(size_t target : targets) {
         G1 tmp;
-        G1::mul(tmp,p.protocol->generators[target+1],p.drec.hashvalues[target]);
+        G1::mul(tmp,p.protocol->generators[target+1],drec.hashvalues[target]);
         G1::add(disclosed,disclosed,tmp);
     }
-    G1::add(disclosed,disclosed,p.proof->cmtU);
-    G1::add(disclosed,disclosed,p.proof->cmtL);
+    G1::add(disclosed,disclosed,proof.cmtU);
+    G1::add(disclosed,disclosed,proof.cmtL);
     pairing(left,disclosed,p.protocol->crv.g2);  
-    pairing(leftbottom,p.proof->cmtA,p.trust.pub);
+    pairing(leftbottom,proof.cmtA,p.trust.pub);
     Fp12::div(left,left,leftbottom);
 
     // fiat shamir over cmtPf3, left 
+    // TODO fsc for each proof ... ?
     Fr fsc;
-    FiatShamir<Fp12>(p.proof->cmtPf3,left,p.pairings[0],fsc);
+    FiatShamir<Fp12>(proof.cmtPf3,left,p.pairings[0],fsc);
 
     // the randoms used to populate the schnorr style commits
-    std::array<Fr,RESPONSE_COUNT> randoms = {p.proof->pf1a, p.proof->pf1b, p.proof->pf2a,
-        p.proof->pf2b, p.proof->pf2c};
-    std::copy(p.proof->pf3.begin(),p.proof->pf3.end(),randoms.begin()+5);
+    std::array<Fr,SECRET_COUNT> randoms = {proof.pf1a, proof.pf1b, proof.pf2a,
+        proof.pf2b, proof.pf2c};
+    std::copy(proof.pf3.begin(),proof.pf3.end(),randoms.begin()+5);
+    std::copy(proof.pf4.begin(),proof.pf4.end(),randoms.begin()+5+PROOF_COUNT);
 
     // our actual secrets
-    std::array<Fr,RESPONSE_COUNT> secrets = {p.proof->r,p.proof->open,p.drec.sig.c};
-    Fr::mul(secrets[3],p.drec.sig.c,p.proof->r); 
-    Fr::mul(secrets[4],p.drec.sig.c,p.proof->open); 
-    secrets[5] = p.drec.sig.c;
-    Fr::neg(secrets[6],p.proof->r);
+    std::array<Fr,SECRET_COUNT> secrets = {proof.r,proof.open,drec.sig.c};
+    Fr::mul(secrets[3],drec.sig.c,proof.r); 
+    Fr::mul(secrets[4],drec.sig.c,proof.open); 
+    secrets[5] = drec.sig.c;
+    Fr::neg(secrets[6],proof.r);
     Fr::neg(secrets[7],secrets[3]);
     for(size_t i = 0; i < MESSAGE_COUNT; i++) {
-        Fr::neg(secrets[8+i],p.drec.hashvalues[i]);
+        Fr::neg(secrets[8+i],drec.hashvalues[i]);
     }
-    Fr::neg(secrets[RESPONSE_COUNT-3],p.drec.sig.s);
-    secrets[RESPONSE_COUNT - 2] = p.proof->ublind;
-    secrets[RESPONSE_COUNT - 1] = p.proof->lblind;
+    Fr::neg(secrets[RESPONSE_COUNT-3],drec.sig.s);
+    secrets[RESPONSE_COUNT - 2] = proof.ublind;
+    secrets[RESPONSE_COUNT - 1] = proof.lblind;
+    Fr::neg(secrets[SECRET_COUNT - 3],drec.sig.u);
+    secrets[SECRET_COUNT - 2] = drec.sig.u;
+    secrets[SECRET_COUNT - 1] = proof.ublind;
 
     for(size_t i = 0; i < RESPONSE_COUNT; i++) {
         if(randoms[i] != (Fr) 0){
             Fr mult;
             Fr::mul(mult,secrets[i],fsc);
-            Fr::sub(p.proof->response[i],randoms[i],mult);
+            Fr::sub(proof.response[i],randoms[i],mult);
         } else {
-            p.proof->response[i] = (Fr) 0;
+            proof.response[i] = (Fr) 0;
         }
+    }
+
+    for(size_t i = 0; i < ROW_RESPONSE_COUNT; i++) {
+        Fr mult;
+        Fr::mul(mult,secrets[RESPONSE_COUNT+i],fsc4);
+        Fr::sub(proof.row_response[i],randoms[RESPONSE_COUNT+i],mult);
     }
 }
 
@@ -251,8 +289,8 @@ void philips::NewZkProof(Prover& p, const std::vector<size_t>& disclose)
  * Verify the response to a challenge 
  * -----------------------------------------------
  */
-bool philips::VerifyProof(Verifier& v, const ZkProof& proof,
-    std::vector<std::pair<std::string,size_t>>& disclosed)
+bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
+    std::vector<std::pair<std::string,size_t>>& disclosed, Verifier& v)
 {
     // PROCESS the proof
     Fp12 left, newtop, leftbottom, lefttop;
@@ -316,6 +354,72 @@ bool philips::VerifyProof(Verifier& v, const ZkProof& proof,
         return false;
     } 
 
+    // uniqueness time
+    Fp12 left4;
+    pairing(left4,proof.cmtU,v.protocol->crv.g2);
+    Fp12::div(left4,left4,proof.rowId);    
+    pairing(v.pairings[PAIRING_COUNT-3],v.protocol->iH,tablekey); 
+
+    Fr fsc4;
+    FiatShamir<Fp12>(proof.cmtPf4,left4,v.pairings[PAIRING_COUNT-3],fsc4);
+    std::cout << fsc4 << std::endl;
+
+    if (!VerifySchnorrProofGt<ROW_RESPONSE_COUNT,ROW_PROOF_COUNT>(left4,proof.cmtPf4,
+        fsc4,proof.row_response.begin(),v.pairings.begin()+PROOF_COUNT)) {
+        return false;
+    } 
+
+    return true;
+}
+
+
+/*--------------------------------------------------------------------------------------
+ * Table Business
+ *-------------------------------------------------------------------------------------*/
+
+/**
+ * Create a new table of deidentified data
+ * -----------------------------------------------
+ */
+void philips::NewTable(const std::string& phrase, Prover &p,
+    std::pair<size_t,std::vector<size_t>>* discl, size_t rowcount)
+{
+    p.table.reset(new Table(rowcount,phrase));
+    p.knowledge.reset(new std::vector<std::pair<size_t,ZkProofKnowledge>>());
+    p.knowledge->reserve(rowcount);
+    for(size_t i = 0; i < rowcount; i++) {
+        size_t index = (*(discl+i)).first;
+        ZkProofKnowledge proof;
+        NewZkProof((*(discl+i)).second,p.table->tablekey,p.drecords[index],proof,p); 
+        p.knowledge->at(i) = std::make_pair(index,proof);
+        std::vector<std::pair<std::string,size_t>> disclosed;
+        for(size_t n : (*(discl+i)).second) { 
+            disclosed.push_back(std::make_pair(p.drecords[index].record[n],index));
+        }
+        Row r =  { disclosed, (ZkProof) proof, proof.rowId };
+        p.table->deidrows.at(i) = r;
+    }
+}
+
+
+/**
+ * Create a new table of deidentified data
+ * -----------------------------------------------
+ */
+bool philips::CheckTable(Verifier& v, const G2& tablekey, Row* table, size_t rowcount)
+{
+    char buf[FP_SIZE];
+    std::hash<std::string> hash_fn;
+    std::unordered_map<size_t,int> map;
+    for(size_t i = 0; i < rowcount; i++){
+        (*(table+i)).rowId.serialize(buf,FP_SIZE);
+        std::string stringrep(buf);
+        size_t hashv = hash_fn(stringrep);
+        if(map.find(hashv) != map.end()) return false;
+        map[hashv] = 1;
+        if(!VerifyProof((*(table+i)).proof,tablekey,(*(table+i)).disclosed,v)) 
+            return false; 
+    }
     return true;
 }
 

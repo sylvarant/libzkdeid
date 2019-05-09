@@ -50,7 +50,7 @@ struct Protocol {
     Protocol() {
         hashAndMapToG1(iH,"uniqueH");
         hashAndMapToG1(lH,"lambdaH");
-        hashAndMapToG1(iH,"issuerH");
+        hashAndMapToG1(uH,"issuerH");
         SetupGenerators(generators); 
     }
 };
