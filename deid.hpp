@@ -21,7 +21,7 @@
 #define PAIRING_COUNT   (PROOF_COUNT + 3)
 #define RESPONSE_COUNT  (MESSAGE_COUNT + SPECIAL_COUNT + 9) 
 #define ROW_RESPONSE_COUNT 3
-#define ROW_PROOF_COUNT 4
+#define ROW_PROOF_COUNT 3
 
 // for marshalling
 #define FP_SIZE 384

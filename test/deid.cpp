@@ -54,10 +54,7 @@ TEST(DeidTest,Prove) {
     trust.pub = kp.pub;
 
     // Sign a record
-    Signature sig;
-    std::array<Fr,MESSAGE_COUNT> hashes;
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
-    Sign(kp,p,record,sig,&hashes);
     DeidRecord drec = DeidRecord(kp,record,p);
     std::vector<DeidRecord> records = { drec };
 
@@ -73,5 +70,11 @@ TEST(DeidTest,Prove) {
     std::vector<std::pair<std::string,size_t>> disclose = {{"a",0}};
     result = VerifyProof(zkp,kp2.pub,disclose,verifier);
     ASSERT_EQ(result,1);
+}
+
+
+TEST(DeidTest,Table) {
+    auto p = std::make_shared<const Protocol>();
+    ASSERT_EQ(1,1);
 }
 

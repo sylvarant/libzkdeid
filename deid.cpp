@@ -211,7 +211,7 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     Fp12 left4;
     pairing(left4,proof.cmtU,p.protocol->crv.g2);
     Fp12::div(left4,left4,proof.rowId);    
-    pairing(p.pairings[PAIRING_COUNT-3],p.protocol->iH,tablekey); 
+    pairing(p.pairings[PAIRING_COUNT-3],p.protocol->uH,tablekey); 
 
     Fp12::pow(proof.cmtPf4,p.pairings[PAIRING_COUNT-3],proof.pf4[0]); 
     for(size_t i = 0; i < 2; i++) {
@@ -223,7 +223,6 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     Fr fsc4;
     FiatShamir<Fp12>(proof.cmtPf4,left4,p.pairings[PAIRING_COUNT-3],fsc4);
     std::cout << fsc4 << std::endl;
-    std::cout << proof.rowId << std::endl;
 
     // compute the lefthand side
     Fp12 left;
@@ -358,7 +357,7 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
     Fp12 left4;
     pairing(left4,proof.cmtU,v.protocol->crv.g2);
     Fp12::div(left4,left4,proof.rowId);    
-    pairing(v.pairings[PAIRING_COUNT-3],v.protocol->iH,tablekey); 
+    pairing(v.pairings[PAIRING_COUNT-3],v.protocol->uH,tablekey); 
 
     Fr fsc4;
     FiatShamir<Fp12>(proof.cmtPf4,left4,v.pairings[PAIRING_COUNT-3],fsc4);
