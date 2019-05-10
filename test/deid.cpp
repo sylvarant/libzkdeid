@@ -90,6 +90,24 @@ TEST(DeidTest,Table) {
     Prover prover = Prover(records,trust,p); 
     Verifier verifier = Verifier(trust,p);
 
-    ASSERT_EQ(1,1);
+    std::vector<size_t> discl1 = {1};
+    std::vector<size_t> discl2 = {2};
+    std::array<std::pair<size_t,std::vector<size_t>>,3> disclose;
+    disclose[0] = std::make_pair(0, discl1); 
+    disclose[1] = std::make_pair(1, discl2); 
+    disclose[2] = std::make_pair(2, discl1); 
+
+    // create a table
+    NewTable("random phrase", prover, disclose.data(), 3);
+
+    bool result;
+    result = CheckTable(verifier,prover.table->tablekey,prover.table->deidrows.data(),3);
+    ASSERT_EQ(result,true);
+
+    // refuse duplicates
+    disclose[2] = disclose[1];
+    NewTable("another phrase", prover, disclose.data(), 3);
+    result = CheckTable(verifier,prover.table->tablekey,prover.table->deidrows.data(),3);
+    ASSERT_EQ(result,false);
 }
 

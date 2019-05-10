@@ -222,7 +222,6 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
 
     Fr fsc4;
     FiatShamir<Fp12>(proof.cmtPf4,left4,p.pairings[PAIRING_COUNT-3],fsc4);
-    std::cout << fsc4 << std::endl;
 
     // compute the lefthand side
     Fp12 left;
@@ -361,7 +360,6 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
 
     Fr fsc4;
     FiatShamir<Fp12>(proof.cmtPf4,left4,v.pairings[PAIRING_COUNT-3],fsc4);
-    std::cout << fsc4 << std::endl;
 
     if (!VerifySchnorrProofGt<ROW_RESPONSE_COUNT,ROW_PROOF_COUNT>(left4,proof.cmtPf4,
         fsc4,proof.row_response.begin(),v.pairings.begin()+PROOF_COUNT)) {
@@ -390,13 +388,13 @@ void philips::NewTable(const std::string& phrase, Prover &p,
         size_t index = (*(discl+i)).first;
         ZkProofKnowledge proof;
         NewZkProof((*(discl+i)).second,p.table->tablekey,p.drecords[index],proof,p); 
-        p.knowledge->at(i) = std::make_pair(index,proof);
+        p.knowledge->push_back(std::make_pair(index,proof));
         std::vector<std::pair<std::string,size_t>> disclosed;
         for(size_t n : (*(discl+i)).second) { 
-            disclosed.push_back(std::make_pair(p.drecords[index].record[n],index));
+            disclosed.push_back(std::make_pair(p.drecords[index].record[n],n));
         }
         Row r =  { disclosed, (ZkProof) proof, proof.rowId };
-        p.table->deidrows.at(i) = r;
+        p.table->deidrows.push_back(r);
     }
 }
 
