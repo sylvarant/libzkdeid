@@ -75,6 +75,21 @@ TEST(DeidTest,Prove) {
 
 TEST(DeidTest,Table) {
     auto p = std::make_shared<const Protocol>();
+    KeyPair kp;
+    TrustLayer trust;
+    KeyGen(p->crv.g2,kp); 
+    trust.pub = kp.pub;
+
+    std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
+    DeidRecord drec = DeidRecord(kp,record,p); // Signed by trusted source
+    DeidRecord drec2 = DeidRecord(kp,record,p); // Signed by trusted source
+    DeidRecord drec3 = DeidRecord(kp,record,p); // Signed by trusted source
+    std::vector<DeidRecord> records = { drec, drec2, drec3 };
+
+    // Create a prover  & Verifier
+    Prover prover = Prover(records,trust,p); 
+    Verifier verifier = Verifier(trust,p);
+
     ASSERT_EQ(1,1);
 }
 
