@@ -15,6 +15,7 @@
 //philips
 #include "crypto.hpp"
 #include "protocol.hpp"
+#include "bb.hpp"
 
 // CLS based constants
 #define PROOF_COUNT     (MESSAGE_COUNT + SPECIAL_COUNT + 4)
@@ -30,8 +31,10 @@ namespace philips {
 
 using namespace mcl::bn256;
 
+typedef bb::KeyPair<G2,G1> BBKey; 
+
 /*--------------------------------------------------------------------------------------
- * Basic CLS signature functionality
+ * Signature functionality
  *-------------------------------------------------------------------------------------*/
 
 struct KeyPair {
@@ -69,21 +72,32 @@ bool VerifySignature(const G2& base, const G2& pub, const Signature& sig,
     const std::shared_ptr<const Protocol>& p, 
     const std::array<std::string,MESSAGE_COUNT>& record);
 
+/**
+ * Sign a sequence of vcf file snips
+ * ------------------------------------------
+ */
+void SignSnips(const std::vector<std::string> seq, const BBKey kp, 
+    const Signature& sig, std::vector<std::pair<std::string,G1>>& snips);
+
 
 /*--------------------------------------------------------------------------------------
  * Innovations
  *-------------------------------------------------------------------------------------*/
 
 struct DeidRecord {
+    std::vector<std::pair<std::string,G1>> snips; 
     std::array<std::string,MESSAGE_COUNT> record;
     std::array<Fr,MESSAGE_COUNT> hashvalues;
     Signature sig;
 
     // simplify initialization
-    DeidRecord(const KeyPair &kp, const std::array<std::string,MESSAGE_COUNT>& rec,
-        const std::shared_ptr<const Protocol> p) : record(rec)
+    DeidRecord(const KeyPair &kp, const BBKey& bkp, 
+        const std::array<std::string,MESSAGE_COUNT>& rec, 
+        const std::shared_ptr<const Protocol> p, const std::vector<std::string> seq) 
+        : record(rec)
     {
         Sign(kp,p,record,sig,&hashvalues);
+        SignSnips(seq,bkp,sig,snips); 
     } 
     DeidRecord() {}
 };
@@ -96,13 +110,16 @@ struct ZkProof {
     G1 cmtBc;     
     G1 cmtPf2;   
     G1 cmtPf2b; 
+    G1 cmtY; 
     Fp12 cmtPf3;
     Fp12 cmtPf4;
+    std::vector<Fp12> cmtSnip;
     Fp12 rowId;  
     G1 cmtU; // u value blinder
     G1 cmtL; // l value blinder
     std::array<Fr,RESPONSE_COUNT> response; // response to fiat-shamir
     std::array<Fr,ROW_RESPONSE_COUNT> row_response; 
+    std::vector<Fr> snip_response; 
 };
 
 struct ZkProofKnowledge : ZkProof {
@@ -119,6 +136,7 @@ struct ZkProofKnowledge : ZkProof {
 // a row of deid data
 struct Row {
     std::vector<std::pair<std::string,size_t>> disclosed; 
+    std::vector<std::pair<std::string,size_t>> snips; 
     ZkProof proof;
     Fp12 rowId; 
 };
@@ -211,7 +229,8 @@ bool VerifyProof(const ZkProof& proof, const G2& tablekey,
  * -----------------------------------------------
  */
 void NewTable(const std::string& phrase, Prover &p,
-    std::pair<size_t,std::vector<size_t>>* discl, size_t rowcount);
+    std::pair<size_t,std::vector<size_t>>* discl, 
+    std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount);
 
 
 /**

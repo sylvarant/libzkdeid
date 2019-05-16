@@ -57,6 +57,7 @@ struct Protocol {
 
 struct TrustLayer {
     G2 pub;    
+    std::vector<G2> bbkeys;
 };
 
 }

@@ -51,6 +51,7 @@ void Sign(const KeyPair<T,Z>& kp, const std::string& message, Z& sig)
     Z::mul(sig,kp.siggen,inv);
 }
 
+
 /**
  * Sign a number BB style
  */
@@ -59,6 +60,22 @@ void Sign(const KeyPair<T,Z>& kp, const Fr& num, Z& sig)
 { 
     Fr inv,sum;
     Fr::add(sum,kp.priv,num);
+    Fr::inv(inv,sum);
+
+    Z::mul(sig,kp.siggen,inv);
+}
+
+
+/**
+ * doubleSign
+ */
+template <typename T, typename Z>
+void DoubleSign(const KeyPair<T,Z>& kp, const std::string& message, Fr sec, Z& sig)
+{ 
+    Fr inv,sum,hash;
+    hash.setHashOf(message);
+    Fr::add(sum,kp.priv,hash);
+    Fr::add(sum,sum,sec);
     Fr::inv(inv,sum);
 
     Z::mul(sig,kp.siggen,inv);

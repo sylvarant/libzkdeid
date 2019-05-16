@@ -46,16 +46,30 @@ TEST(DeidTest,Prove) {
     auto p = std::make_shared<const Protocol>();
 
     // generate keypair for issuer & create trustchain info
-    KeyPair kp;
-    KeyPair kp2;
+    KeyPair kp, kp2;
+    BBKey bbk(p->crv.g2,p->crv.g1);
+    BBKey bbk2(p->crv.g2,p->crv.g1);
     TrustLayer trust;
     KeyGen(p->crv.g2,kp); 
     KeyGen(p->crv.g2,kp2); 
     trust.pub = kp.pub;
+    trust.bbkeys = {bbk.pub, bbk2.pub};
+
+    std::vector<std::string> snips = {
+        "1       15850   .       G       T       .       .       .",
+        "1       396781  .       T       A       .       .       .",
+        "1       447872  .       A       T       .       .       .",
+        "1       539230  .       T       A       .       .       .",
+        "1       660507  .       A       C       .       .       .",
+        "1       666172  .       A       G       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       943484  .       T       C       .       .       ."
+    };
 
     // Sign a record
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
-    DeidRecord drec = DeidRecord(kp,record,p);
+    DeidRecord drec = DeidRecord(kp,bbk,record,p,snips);
     std::vector<DeidRecord> records = { drec };
 
     // Create a prover  & Verifier
@@ -78,12 +92,27 @@ TEST(DeidTest,Table) {
     KeyPair kp;
     TrustLayer trust;
     KeyGen(p->crv.g2,kp); 
+    BBKey bbk(p->crv.g2,p->crv.g1);
+    BBKey bbk2(p->crv.g2,p->crv.g1);
     trust.pub = kp.pub;
+    trust.bbkeys = {bbk.pub, bbk2.pub};
+
+    std::vector<std::string> snips = {
+        "1       15850   .       G       T       .       .       .",
+        "1       396781  .       T       A       .       .       .",
+        "1       447872  .       A       T       .       .       .",
+        "1       539230  .       T       A       .       .       .",
+        "1       660507  .       A       C       .       .       .",
+        "1       666172  .       A       G       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       943484  .       T       C       .       .       ."
+    };
 
     std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
-    DeidRecord drec = DeidRecord(kp,record,p); // Signed by trusted source
-    DeidRecord drec2 = DeidRecord(kp,record,p); // Signed by trusted source
-    DeidRecord drec3 = DeidRecord(kp,record,p); // Signed by trusted source
+    DeidRecord drec = DeidRecord(kp,bbk,record,p,snips); // Signed by trusted source
+    DeidRecord drec2 = DeidRecord(kp,bbk,record,p,snips); // Signed by trusted source
+    DeidRecord drec3 = DeidRecord(kp,bbk,record,p,snips); // Signed by trusted source
     std::vector<DeidRecord> records = { drec, drec2, drec3 };
 
     // Create a prover  & Verifier
@@ -97,8 +126,15 @@ TEST(DeidTest,Table) {
     disclose[1] = std::make_pair(1, discl2); 
     disclose[2] = std::make_pair(2, discl1); 
 
+    std::vector<size_t> sdiscl1 = {3,6};
+    std::vector<size_t> sdiscl2 = {4,6};
+    std::array<std::pair<size_t,std::vector<size_t>>,3> discsnips;
+    discsnips[0] = std::make_pair(0, sdiscl1); 
+    discsnips[1] = std::make_pair(1, sdiscl2); 
+    discsnips[2] = std::make_pair(2, sdiscl1); 
+
     // create a table
-    NewTable("random phrase", prover, disclose.data(), 3);
+    NewTable("random phrase", prover, disclose.data(), discsnips.data(), 3);
 
     bool result;
     result = CheckTable(verifier,prover.table->tablekey,prover.table->deidrows.data(),3);
@@ -106,7 +142,7 @@ TEST(DeidTest,Table) {
 
     // refuse duplicates
     disclose[2] = disclose[1];
-    NewTable("another phrase", prover, disclose.data(), 3);
+    NewTable("another phrase", prover, disclose.data(), discsnips.data(), 3);
     result = CheckTable(verifier,prover.table->tablekey,prover.table->deidrows.data(),3);
     ASSERT_EQ(result,false);
 }

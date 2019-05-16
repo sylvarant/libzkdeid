@@ -33,15 +33,15 @@ void philips::KeyGen(const G2& base, KeyPair& kp)
 
 
 /*--------------------------------------------------------------------------------------
- * Basic CLS signature functionality
+ * Basic signature functionality
  *-------------------------------------------------------------------------------------*/
 
 /**
- * Sign a set of record
+ * Sign a record
  * ------------------------------------------
  */
 void philips::Sign(const KeyPair& kp, const std::shared_ptr<const Protocol>& p, 
-    const std::array<std::string,MESSAGE_COUNT>& record, Signature& sig,
+    const std::array<std::string,MESSAGE_COUNT>& record, Signature& sig, 
     std::array<Fr,MESSAGE_COUNT>* hashes) 
 { 
     // random members
@@ -127,6 +127,22 @@ bool philips::VerifySignature(const G2& base, const G2& pub, const Signature& si
 }
 
 
+/**
+ * Sign a sequence of vcf file snips
+ * ------------------------------------------
+ */
+void philips::SignSnips(const std::vector<std::string> seq, const BBKey kp, 
+    const Signature& sig, std::vector<std::pair<std::string,G1>>& snips)
+{
+    snips.reserve(seq.size());
+    for(const std::string s : seq) {
+        G1 addSig;
+        bb::DoubleSign<G2,G1>(kp,s,sig.l,addSig);
+        snips.push_back(std::make_pair(s,addSig));
+    }
+}
+
+
 /*--------------------------------------------------------------------------------------
  * CLS Zero Knowledge Proof
  *-------------------------------------------------------------------------------------*/
@@ -193,7 +209,7 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     G1::mul(blind,p.protocol->iH,proof.lblind);
     G1::add(proof.cmtL,blind,hl);
 
-    // the rowId
+    // rowId
     pairing(proof.rowId,hu,tablekey);
 
     // pf3 is complicated
@@ -379,7 +395,8 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
  * -----------------------------------------------
  */
 void philips::NewTable(const std::string& phrase, Prover &p,
-    std::pair<size_t,std::vector<size_t>>* discl, size_t rowcount)
+    std::pair<size_t,std::vector<size_t>>* discl, 
+    std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount)
 {
     p.table.reset(new Table(rowcount,phrase));
     p.knowledge.reset(new std::vector<std::pair<size_t,ZkProofKnowledge>>());
@@ -390,10 +407,14 @@ void philips::NewTable(const std::string& phrase, Prover &p,
         NewZkProof((*(discl+i)).second,p.table->tablekey,p.drecords[index],proof,p); 
         p.knowledge->push_back(std::make_pair(index,proof));
         std::vector<std::pair<std::string,size_t>> disclosed;
+        std::vector<std::pair<std::string,size_t>> snips;
         for(size_t n : (*(discl+i)).second) { 
             disclosed.push_back(std::make_pair(p.drecords[index].record[n],n));
         }
-        Row r =  { disclosed, (ZkProof) proof, proof.rowId };
+        for(size_t n : (*(disclsnip+i)).second) { 
+            snips.push_back(std::make_pair(p.drecords[index].snips[n].first,n));
+        }
+        Row r =  { disclosed, snips, (ZkProof) proof, proof.rowId };
         p.table->deidrows.push_back(r);
     }
 }
