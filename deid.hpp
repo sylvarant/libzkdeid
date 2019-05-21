@@ -110,13 +110,14 @@ struct ZkProof {
     G1 cmtBc;     
     G1 cmtPf2;   
     G1 cmtPf2b; 
-    G1 cmtY; 
     Fp12 cmtPf3;
     Fp12 cmtPf4;
-    std::vector<Fp12> cmtSnip;
+    std::vector<G1> SiV; // Si^v
+    std::vector<Fp12> cmtSnip; // TODO what for
     Fp12 rowId;  
     G1 cmtU; // u value blinder
     G1 cmtL; // l value blinder
+    G1 cmtY; 
     std::array<Fr,RESPONSE_COUNT> response; // response to fiat-shamir
     std::array<Fr,ROW_RESPONSE_COUNT> row_response; 
     std::vector<Fr> snip_response; 
@@ -127,16 +128,18 @@ struct ZkProofKnowledge : ZkProof {
     Fr open;                        // secret for B
     Fr ublind; 
     Fr lblind; 
+    Fr pfl1a, pfl1b; 
     Fr pf1a, pf1b;                  
     Fr pf2a, pf2b, pf2c;            
     std::array<Fr,PROOF_COUNT> pf3; 
     std::array<Fr,ROW_PROOF_COUNT> pf4; 
+    std::vector<Fr> snipblinds;
 };
 
 // a row of deid data
 struct Row {
     std::vector<std::pair<std::string,size_t>> disclosed; 
-    std::vector<std::pair<std::string,size_t>> snips; 
+    std::vector<std::string> snips; 
     ZkProof proof;
     Fp12 rowId; 
 };
@@ -208,8 +211,8 @@ struct Verifier {
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey,
-    const DeidRecord& drec, ZkProofKnowledge& proof, Prover& p);
+void NewZkProof(const std::vector<size_t>& disclose, const std::vector<size_t>& snip,
+    const G2& tablekey, const DeidRecord& drec, ZkProofKnowledge& proof, Prover& p);
 
 
 /**
@@ -217,6 +220,7 @@ void NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey,
  * -----------------------------------------------
  */
 bool VerifyProof(const ZkProof& proof, const G2& tablekey,
+    const std::vector<std::string>& snips, 
     std::vector<std::pair<std::string,size_t>>& disclosed, Verifier& v);
 
 
@@ -229,8 +233,8 @@ bool VerifyProof(const ZkProof& proof, const G2& tablekey,
  * -----------------------------------------------
  */
 void NewTable(const std::string& phrase, Prover &p,
-    std::pair<size_t,std::vector<size_t>>* discl, 
-    std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount);
+    const std::pair<size_t,std::vector<size_t>>* discl, 
+    const std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount);
 
 
 /**

@@ -151,8 +151,9 @@ void philips::SignSnips(const std::vector<std::string> seq, const BBKey kp,
  * Create a New set of proof secrets & commitments
  * -----------------------------------------------
  */
-void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey,
-    const DeidRecord& drec, ZkProofKnowledge& proof, Prover& p) 
+void philips::NewZkProof(const std::vector<size_t>& disclose, 
+    const std::vector<size_t>& snip, const G2& tablekey, const DeidRecord& drec, 
+    ZkProofKnowledge& proof, Prover& p) 
 {
     // random factors
     proof.r.setRand();
@@ -162,6 +163,8 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     proof.pf2a.setRand();
     proof.pf2b.setRand();
     proof.pf2c.setRand();
+    proof.pfl1a.setRand();
+    proof.pfl1b.setRand();
 
     for (size_t i = 0; i < PROOF_COUNT; i++) {
         Fr x; 
@@ -183,6 +186,16 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     // empty randoms for disclosed messages
     for(size_t target : targets) {
         proof.pf3[3 + target] = (Fr) 0;
+    }
+
+    // get signatures
+    proof.snipblinds.reserve(snip.size());
+    std::vector<std::pair<std::string,G1>> Si(snip.size());
+    for(size_t target: snip) {
+        Si.push_back(drec.snips.at(target));
+        Fr x; 
+        x.setRand();
+        proof.snipblinds.push_back(x);
     }
 
     // commitment time
@@ -208,6 +221,12 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
     G1::mul(hl,p.protocol->lH,drec.sig.l);
     G1::mul(blind,p.protocol->iH,proof.lblind);
     G1::add(proof.cmtL,blind,hl);
+
+    // snip proof
+    G1 interm;
+    G1::mul(proof.cmtY,p.protocol->lH,proof.pfl1a);
+    G1::mul(interm,p.protocol->iH,proof.pfl1b);
+    G1::add(proof.cmtY,proof.cmtY,interm);
 
     // rowId
     pairing(proof.rowId,hu,tablekey);
@@ -304,6 +323,7 @@ void philips::NewZkProof(const std::vector<size_t>& disclose, const G2& tablekey
  * -----------------------------------------------
  */
 bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
+    const std::vector<std::string>& snips, 
     std::vector<std::pair<std::string,size_t>>& disclosed, Verifier& v)
 {
     // PROCESS the proof
@@ -382,6 +402,13 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
         return false;
     } 
 
+    // snip time
+  //  if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(proof.cmtL,proof.cmtPf1,fsc,
+  //      proof.response.begin(),pf1gens.begin())) {
+  //      return false;
+  //  }
+
+
     return true;
 }
 
@@ -395,8 +422,8 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
  * -----------------------------------------------
  */
 void philips::NewTable(const std::string& phrase, Prover &p,
-    std::pair<size_t,std::vector<size_t>>* discl, 
-    std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount)
+    const std::pair<size_t,std::vector<size_t>>* discl, 
+    const std::pair<size_t,std::vector<size_t>>* disclsnip, size_t rowcount)
 {
     p.table.reset(new Table(rowcount,phrase));
     p.knowledge.reset(new std::vector<std::pair<size_t,ZkProofKnowledge>>());
@@ -404,15 +431,16 @@ void philips::NewTable(const std::string& phrase, Prover &p,
     for(size_t i = 0; i < rowcount; i++) {
         size_t index = (*(discl+i)).first;
         ZkProofKnowledge proof;
-        NewZkProof((*(discl+i)).second,p.table->tablekey,p.drecords[index],proof,p); 
+        NewZkProof((*(discl+i)).second,(*(disclsnip+i)).second,p.table->tablekey,
+            p.drecords[index],proof,p); 
         p.knowledge->push_back(std::make_pair(index,proof));
         std::vector<std::pair<std::string,size_t>> disclosed;
-        std::vector<std::pair<std::string,size_t>> snips;
+        std::vector<std::string> snips;
         for(size_t n : (*(discl+i)).second) { 
             disclosed.push_back(std::make_pair(p.drecords[index].record[n],n));
         }
         for(size_t n : (*(disclsnip+i)).second) { 
-            snips.push_back(std::make_pair(p.drecords[index].snips[n].first,n));
+            snips.push_back(p.drecords[index].snips[n].first);
         }
         Row r =  { disclosed, snips, (ZkProof) proof, proof.rowId };
         p.table->deidrows.push_back(r);
@@ -435,7 +463,8 @@ bool philips::CheckTable(Verifier& v, const G2& tablekey, Row* table, size_t row
         size_t hashv = hash_fn(stringrep);
         if(map.find(hashv) != map.end()) return false;
         map[hashv] = 1;
-        if(!VerifyProof((*(table+i)).proof,tablekey,(*(table+i)).disclosed,v)) 
+        if(!VerifyProof((*(table+i)).proof,tablekey,(*(table+i)).snips,
+            (*(table+i)).disclosed,v)) 
             return false; 
     }
     return true;

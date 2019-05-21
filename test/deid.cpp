@@ -79,10 +79,12 @@ TEST(DeidTest,Prove) {
     // Now proof, process, challenge, response & verify 
     bool result;
     ZkProofKnowledge deserial;
-    NewZkProof({0},kp2.pub,drec,deserial,prover);
+    NewZkProof({0},{1},kp2.pub,drec,deserial,prover);
     ZkProof zkp = (ZkProof) (deserial);
     std::vector<std::pair<std::string,size_t>> disclose = {{"a",0}};
-    result = VerifyProof(zkp,kp2.pub,disclose,verifier);
+    std::vector<std::string> disclsnip = 
+        { "1       396781  .       T       A       .       .       ." };
+    result = VerifyProof(zkp,kp2.pub,disclsnip,disclose,verifier);
     ASSERT_EQ(result,1);
 }
 
