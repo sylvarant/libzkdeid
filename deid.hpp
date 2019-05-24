@@ -113,7 +113,7 @@ struct ZkProof {
     Fp12 cmtPf3;
     Fp12 cmtPf4;
     std::vector<G1> SiV; // Si^v
-    std::vector<Fp12> cmtSnip; // TODO what for
+    std::vector<Fp12> cmtSnip; // denoted in math as a..
     Fp12 rowId;  
     G1 cmtU; // u value blinder
     G1 cmtL; // l value blinder
@@ -134,6 +134,7 @@ struct ZkProofKnowledge : ZkProof {
     std::array<Fr,PROOF_COUNT> pf3; 
     std::array<Fr,ROW_PROOF_COUNT> pf4; 
     std::vector<Fr> snipblinds;
+    std::vector<Fr> v;
 };
 
 // a row of deid data

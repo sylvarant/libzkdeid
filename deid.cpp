@@ -188,14 +188,21 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
         proof.pf3[3 + target] = (Fr) 0;
     }
 
-    // get signatures
+    // set up snip proof
     proof.snipblinds.reserve(snip.size());
+    proof.v.reserve(snip.size());
     std::vector<std::pair<std::string,G1>> Si(snip.size());
+    proof.cmtSnip.reserve(snip.size());
+    proof.SiV.reserve(snip.size());
+    proof.snip_response.reserve(snip.size()+2);
     for(size_t target: snip) {
         Si.push_back(drec.snips.at(target));
-        Fr x; 
+        Fr x,y; 
         x.setRand();
         proof.snipblinds.push_back(x);
+        y.setRand();
+        proof.v.push_back(y);
+
     }
 
     // commitment time
@@ -221,12 +228,6 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
     G1::mul(hl,p.protocol->lH,drec.sig.l);
     G1::mul(blind,p.protocol->iH,proof.lblind);
     G1::add(proof.cmtL,blind,hl);
-
-    // snip proof
-    G1 interm;
-    G1::mul(proof.cmtY,p.protocol->lH,proof.pfl1a);
-    G1::mul(interm,p.protocol->iH,proof.pfl1b);
-    G1::add(proof.cmtY,proof.cmtY,interm);
 
     // rowId
     pairing(proof.rowId,hu,tablekey);
@@ -278,6 +279,24 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
     Fr fsc;
     FiatShamir<Fp12>(proof.cmtPf3,left,p.pairings[0],fsc);
 
+    // snip proof
+    G1 interm;
+    G1::mul(proof.cmtY,p.protocol->lH,proof.pfl1a);
+    G1::mul(interm,p.protocol->iH,proof.pfl1b);
+    G1::add(proof.cmtY,proof.cmtY,interm);
+    for(size_t i = 0; i < snip.size(); i++) {
+        G1::mul(proof.SiV[i],Si[i].second,proof.v[i]);
+    }
+    for(size_t i = 0; i < snip.size(); i++) {
+        Fp12 a1, a2;
+        pairing(a1,proof.SiV[i],p.protocol->crv.g2);
+        Fp12::pow(a2,p.protocol->crv.e,proof.snipblinds[i]);
+        Fp12::mul(proof.cmtSnip[i],a1,a2);
+    }
+
+    Fr fsc2;
+    FiatShamir<G1>(proof.cmtL,proof.cmtY,p.protocol->iH,fsc2);
+
     // the randoms used to populate the schnorr style commits
     std::array<Fr,SECRET_COUNT> randoms = {proof.pf1a, proof.pf1b, proof.pf2a,
         proof.pf2b, proof.pf2c};
@@ -316,6 +335,19 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
         Fr::mul(mult,secrets[RESPONSE_COUNT+i],fsc4);
         Fr::sub(proof.row_response[i],randoms[RESPONSE_COUNT+i],mult);
     }
+
+    // snips seperately as dynamic
+    Fr zy,zt;
+    Fr::mul(zy,drec.sig.l,fsc2);
+    Fr::sub(proof.snip_response[0],proof.pfl1a,zy);
+    Fr::mul(zt,proof.lblind,fsc2);
+    Fr::sub(proof.snip_response[1],proof.pfl1b,zt);
+    for(size_t i = 0; i < proof.snipblinds.size(); i ++) {
+        Fr mult;
+        Fr::mul(mult,proof.v[i],fsc2);
+        Fr::sub(proof.snip_response[2+i],proof.snipblinds[i],mult);
+    }
+    
 }
 
 /**
@@ -362,6 +394,7 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
 
     // simplified calling
     const std::array<G1,2> pf1gens = {v.protocol->crv.g1,v.protocol->iH};
+    const std::array<G1,2> pfl1gens = {v.protocol->lH,v.protocol->iH};
     const std::array<G1,1> pf2gens = {proof.cmtB};
 
     // check proof 1
@@ -403,10 +436,14 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
     } 
 
     // snip time
-  //  if (!VerifySchnorrProofG1<RESPONSE_COUNT,2>(proof.cmtL,proof.cmtPf1,fsc,
-  //      proof.response.begin(),pf1gens.begin())) {
-  //      return false;
-  //  }
+    Fr fsc2;
+    FiatShamir<G1>(proof.cmtL,proof.cmtY,v.protocol->iH,fsc2);
+
+    std::array<Fr,2> fixresp = { proof.snip_response[0], proof.snip_response[1] };
+    if (!VerifySchnorrProofG1<2,2>(proof.cmtL,proof.cmtY,fsc2,fixresp.begin(),
+        pfl1gens.begin())){
+        return false;
+    }
 
 
     return true;
