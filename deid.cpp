@@ -8,6 +8,7 @@
 // philips 
 #include "deid.hpp"
 #include "schnorr.hpp"
+#include "bb.hpp"
 
 #include <iostream>
 
@@ -191,12 +192,13 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
     // set up snip proof
     proof.snipblinds.reserve(snip.size());
     proof.v.reserve(snip.size());
-    std::vector<std::pair<std::string,G1>> Si(snip.size());
+    std::vector<std::pair<std::string,G1>> Si;
+    Si.reserve(snip.size());
     proof.cmtSnip.reserve(snip.size());
     proof.SiV.reserve(snip.size());
     proof.snip_response.reserve(snip.size()+2);
     for(size_t target: snip) {
-        Si.push_back(drec.snips.at(target));
+        Si.push_back(drec.snips[target]);
         Fr x,y; 
         x.setRand();
         proof.snipblinds.push_back(x);
@@ -284,14 +286,23 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
     G1::mul(proof.cmtY,p.protocol->lH,proof.pfl1a);
     G1::mul(interm,p.protocol->iH,proof.pfl1b);
     G1::add(proof.cmtY,proof.cmtY,interm);
+
     for(size_t i = 0; i < snip.size(); i++) {
-        G1::mul(proof.SiV[i],Si[i].second,proof.v[i]);
-    }
-    for(size_t i = 0; i < snip.size(); i++) {
-        Fp12 a1, a2;
-        pairing(a1,proof.SiV[i],p.protocol->crv.g2);
+        Fp12 a1, a2, a3;
+        Fr ai;
+        G1 siv;
+
+   /*     bool help = bb::DoubleVerify<G2,G1>(p.protocol->crv.g2,p.protocol->crv.g1,
+            p.trust.bbkeys[0],pfunc,Si[i].second,Si[i].first,drec.sig.l);
+   */ 
+        G1::mul(siv,Si[i].second,proof.v[i]);
+        proof.SiV.push_back(siv);
+        pairing(a1,siv,p.protocol->crv.g2);
+        Fr::neg(ai,proof.pfl1a);
+        Fp12::pow(a1,a1,ai);
         Fp12::pow(a2,p.protocol->crv.e,proof.snipblinds[i]);
-        Fp12::mul(proof.cmtSnip[i],a1,a2);
+        Fp12::mul(a3,a1,a2);
+        proof.cmtSnip.push_back(a3);
     }
 
     Fr fsc2;
@@ -337,17 +348,19 @@ void philips::NewZkProof(const std::vector<size_t>& disclose,
     }
 
     // snips seperately as dynamic
-    Fr zy,zt;
+    Fr zy,zt,lcpy;
     Fr::mul(zy,drec.sig.l,fsc2);
-    Fr::sub(proof.snip_response[0],proof.pfl1a,zy);
+    Fr::sub(lcpy,proof.pfl1a,zy);
+    proof.snip_response.push_back(lcpy);
     Fr::mul(zt,proof.lblind,fsc2);
-    Fr::sub(proof.snip_response[1],proof.pfl1b,zt);
+    Fr::sub(lcpy,proof.pfl1b,zt);
+    proof.snip_response.push_back(lcpy);
     for(size_t i = 0; i < proof.snipblinds.size(); i ++) {
         Fr mult;
         Fr::mul(mult,proof.v[i],fsc2);
-        Fr::sub(proof.snip_response[2+i],proof.snipblinds[i],mult);
+        Fr::sub(lcpy,proof.snipblinds[i],mult);
+        proof.snip_response.push_back(lcpy);
     }
-    
 }
 
 /**
@@ -444,7 +457,27 @@ bool philips::VerifyProof(const ZkProof& proof, const G2& tablekey,
         pfl1gens.begin())){
         return false;
     }
-
+    
+    std::array<Fp12,2> gens = { v.protocol->crv.e, v.protocol->crv.e };
+    Fr negative;
+    Fr::neg(negative,proof.snip_response[0]);
+    fixresp[0] = negative;
+    for(size_t i = 0; i < snips.size(); i++) {
+        Fr hash;
+        G2 second;
+        Fp12 lpair,sivpair;
+        hash.setHashOf(snips.at(i));
+        G2::mul(second,v.protocol->crv.g2,hash);
+        G2::add(second,v.trust.bbkeys[0],second);
+        pairing(lpair,proof.SiV[i],second);
+        pairing(sivpair,proof.SiV[i],v.protocol->crv.g2);
+        fixresp[1] = proof.snip_response[2+i];
+        gens[0] = sivpair;
+        if (!VerifySchnorrProofGt<2,2>(lpair,proof.cmtSnip[i],fsc2,fixresp.begin(),
+            gens.begin())){
+            return false;
+        }
+    }
 
     return true;
 }

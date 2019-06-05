@@ -88,7 +88,6 @@ TEST(DeidTest,Prove) {
     ASSERT_EQ(result,1);
 }
 
-
 TEST(DeidTest,Table) {
     auto p = std::make_shared<const Protocol>();
     KeyPair kp;

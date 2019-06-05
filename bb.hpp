@@ -70,7 +70,7 @@ void Sign(const KeyPair<T,Z>& kp, const Fr& num, Z& sig)
  * doubleSign
  */
 template <typename T, typename Z>
-void DoubleSign(const KeyPair<T,Z>& kp, const std::string& message, Fr sec, Z& sig)
+void DoubleSign(const KeyPair<T,Z>& kp, const std::string& message, const Fr& sec, Z& sig)
 { 
     Fr inv,sum,hash;
     hash.setHashOf(message);
@@ -81,6 +81,25 @@ void DoubleSign(const KeyPair<T,Z>& kp, const std::string& message, Fr sec, Z& s
     Z::mul(sig,kp.siggen,inv);
 }
 
+/**
+ * Verify a given BB signature
+ * ------------------------------------------
+ */
+template <typename T, typename Z>
+bool DoubleVerify(const T& pubgen, const Z& siggen, const T& pub,Fp12 (*p)(T,Z), 
+    const Z& sig, const std::string& message, const Fr& sec)
+{
+    T gm;
+    Fr hash;
+    Fp12 left,right;
+    left = p(pubgen,siggen);
+    hash.setHashOf(message);
+    Fr::add(hash,hash,sec);
+    T::mul(gm,pubgen,hash);
+    T::add(gm,gm,pub);
+    right = p(gm,sig);
+    return (right == left);
+}
 
 /**
  * Verify a given BB signature
