@@ -102,5 +102,34 @@ if(TESTING OR CMAKE_BUILD_TYPE MATCHES Debug)
 
  add_dependencies(check crypto_test)
 
+  # >>>> web tests <<<<
+ add_executable(web_test
+  EXCLUDE_FROM_ALL
+  init_test.cpp
+  web.cpp
+ )
+
+ target_link_libraries(web_test
+  PRIVATE
+  libzkdeid 
+  mcl::loc
+  gtest
+  Threads::Threads
+ )
+
+ target_include_directories(web_test
+  PUBLIC
+  "${CMAKE_BINARY_DIR}/deps/include"
+  "${CMAKE_SOURCE_DIR}"
+ )
+
+ gtest_add_tests(
+    web_test
+    ""
+    web.cpp
+ )
+
+ add_dependencies(check web_test)
+
 endif()
 
