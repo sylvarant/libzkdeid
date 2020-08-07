@@ -1,4 +1,4 @@
 # libzkdeid
 
-Philips solution for verifying de-identified data
+Philips solution for verifying de-identified genomic data
 

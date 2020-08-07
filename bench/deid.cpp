@@ -6,10 +6,18 @@
  */
 
 #include <mcl/bn256.hpp>
+
+#define CYBOZU_BENCH_USE_GETTIMEOFDAY
 #include <cybozu/benchmark.hpp>
+
+#undef CYBOZU_BENCH_USE_CPU_TIMER
 
 #include <protocol.hpp>
 #include <deid.hpp>
+
+#include <iostream>
+
+#define TESTCOUNT 3
 
 using namespace mcl::bn256;
 
@@ -25,46 +33,108 @@ int main(void)
     auto p = std::make_shared<const Protocol>();
 
     // generate keypair for issuer & create trustchain info
-    KeyPair kp;
+    KeyPair kp, kp2;
+    BBKey bbk(p->crv.g2,p->crv.g1);
+    BBKey bbk2(p->crv.g2,p->crv.g1);
     TrustLayer trust;
     KeyGen(p->crv.g2,kp); 
+    KeyGen(p->crv.g2,kp2); 
     trust.pub = kp.pub;
+    trust.bbkeys = {bbk.pub, bbk2.pub};
 
-    // Sign a message
-    Signature sig;
-    std::array<Fr,MESSAGE_COUNT> hashes;
-    std::array<G1,SPECIAL_COUNT> ign = { p->crv.g1 };
-    std::array<std::string,MESSAGE_COUNT> message = {"a","b","c","d","e"};
-    Sign(kp,p->generators,message,ign,sig,&hashes);
+    std::vector<std::string> snips = {
+        "1       15850   .       G       T       .       .       .",
+        "1       396781  .       T       A       .       .       .",
+        "1       447872  .       A       T       .       .       .",
+        "1       539230  .       T       A       .       .       .",
+        "1       660507  .       A       C       .       .       .",
+        "1       666172  .       A       G       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       701549  .       G       A       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       708702  .       T       G       .       .       .",
+        "1       943484  .       T       C       .       .       ."
+    };
+
+    // Sign a record
+    std::array<std::string,MESSAGE_COUNT> record = {"a","b","c","d","e"};
+    const size_t testsize = 1000;
+    std::vector<DeidRecord> records(testsize);
+    for(size_t i = 0; i < testsize; i++) {
+        records[i] = DeidRecord(kp,bbk,record,p,snips);
+    }
 
     // Create a prover  & Verifier
-    Prover prover = Prover(Credential(sig,message,ign,hashes),trust,p); 
+    Prover prover = Prover(records,trust,p); 
     Verifier verifier = Verifier(trust,p);
 
-    // Now proof, process, challenge, response & verify 
-    Fr challenge;
-    ZkProof deserial;
-    std::array<Fr,RESPONSE_COUNT> response;
-    std::vector<char> buf((G1_size * 6)+Fp12_size); 
-    NewZkProof(prover);
-    ZkProof zkp = (ZkProof) *(prover.proof);
-    ProcessZkProof(zkp,verifier);
-    challenge.setRand();
-    RespondToChallenge(prover,challenge,response);
+    std::vector<size_t> discl1 = {1};
+    std::array<std::pair<size_t,std::vector<size_t>>,testsize> disclose;
+    for(size_t i = 0; i < testsize; i++) {
+        disclose[i] = std::make_pair(i,discl1);
+    }
+
+    std::vector<size_t> sdiscl1 = {1,2,3,4,5};
+    std::array<std::pair<size_t,std::vector<size_t>>,testsize> discsnips;
+    for(size_t i = 0; i < testsize; i++) {
+        discsnips[i] = std::make_pair(i,sdiscl1);
+    }
+
+    // create a table
+    NewTable("random phrase", prover, disclose.data(), discsnips.data(), testsize);
+
+    bool result;
+    result = CheckTable(verifier,prover.table->tablekey,prover.table->deidrows.data(),testsize);
+    std::cout << result << std::endl;
 
     // BENCHMARKING
-    CYBOZU_BENCH_C("Verify::Sig",1000,VerifySignature,p->crv.g2,kp.pub,sig,p->generators,
-        message,ign);
+    CYBOZU_BENCH_C("[Prover] Create::Table",TESTCOUNT,NewTable, "huhhhy", prover, disclose.data(), discsnips.data(), testsize);
 
-    CYBOZU_BENCH_C("[Prover] Create::ZkProof",1000,NewZkProof,prover);
+    CYBOZU_BENCH_C("[Verifier] Check::Table",TESTCOUNT,CheckTable,verifier,prover.table->tablekey,prover.table->deidrows.data(),testsize);
 
-    CYBOZU_BENCH_C("[Verifier] Process::ZkProof",1000,ProcessZkProof,*(prover.proof),
-        verifier);
+    
 
-    CYBOZU_BENCH_C("[Prover] Create::Response",1000,RespondToChallenge,prover,challenge,
-        response);
+    // Now proof, process, challenge, response & verify 
+   // ZkProofKnowledge deserial,test;
+//    NewZkProof({0},{1,2,3,4,5,6,7,8,9,10},kp2.pub,drec,deserial,prover);
+   // NewZkProof({0,1},{},kp2.pub,drec,deserial,prover);
+  //  ZkProof zkp = (ZkProof) (deserial);
+/*    std::vector<std::pair<std::string,size_t>> disclose = {{"a",0},{"b",1}};//,{"c",2}};
+    std::vector<std::string> disclsnip = 
+        { "1       396781  .       T       A       .       .       .",
+          "1       447872  .       A       T       .       .       .",
+          "1       539230  .       T       A       .       .       .",
+          "1       660507  .       A       C       .       .       .",
+          "1       666172  .       A       G       .       .       .",
+        };
+*/
+/*    bool result;
+    result = VerifyProof(zkp,kp2.pub,{},disclose,verifier);
+    std::cout << result << std::endl;
 
-    CYBOZU_BENCH_C("[Verifier] Verify::Proof",1000,VerifyProof,verifier,challenge,
-        response);
+    // BENCHMARKING
+    CYBOZU_BENCH_C("[Prover] Create::ZkProof",1000,NewZkProof,{0,1},{},kp2.pub,drec,test,prover);
+
+    CYBOZU_BENCH_C("[Verifier] Verify::Proof",1000,VerifyProof,zkp,kp2.pub,{},disclose,verifier);
+*/
 }
 
